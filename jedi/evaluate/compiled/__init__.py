@@ -524,8 +524,12 @@ def create(evaluator, obj, parent=None, module=None):
             # Modules don't have parents, be careful with caching: recurse.
             return create(evaluator, obj)
     else:
-        if parent is None and obj != _builtins:
-            return create(evaluator, obj, create(evaluator, _builtins))
+        try:
+            if parent is None and obj != _builtins:
+                return create(evaluator, obj, create(evaluator, _builtins))
+        except Exception as e:
+            """Ugly hack, some properties seem to throw exceptions."""
+            pass
 
         faked = fake.get_faked(module and module.obj, obj)
         if faked is not None:

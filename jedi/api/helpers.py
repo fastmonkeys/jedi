@@ -5,10 +5,12 @@ import re
 from collections import namedtuple
 
 from jedi._compatibility import u
-from jedi.evaluate.helpers import call_of_leaf
-from jedi import parser
-from jedi.parser import tokenize, token
+from jedi.evaluate.helpers import evaluate_call_of_leaf
+from jedi.parser.python.parser import Parser
+from jedi.parser.python import tree
+from jedi.parser import tokenize
 from jedi.cache import time_cache
+from jedi import common
 
 
 CompletionParts = namedtuple('CompletionParts', ['path', 'has_dot', 'name'])
@@ -19,18 +21,21 @@ def sorted_definitions(defs):
     return sorted(defs, key=lambda x: (x.module_path or '', x.line or 0, x.column or 0))
 
 
-def get_on_completion_name(lines, position):
-    line = lines[position[0] - 1]
-    # The first step of completions is to get the name
-    return re.search(
-        r'(?!\d)\w+$|$', line[:position[1]]
-    ).group(0)
+def get_on_completion_name(module_node, lines, position):
+    leaf = module_node.get_leaf_for_position(position)
+    if leaf is None or leaf.type in ('string', 'error_leaf'):
+        # Completions inside strings are a bit special, we need to parse the
+        # string. The same is true for comments and error_leafs.
+        line = lines[position[0] - 1]
+        # The first step of completions is to get the name
+        return re.search(r'(?!\d)\w+$|$', line[:position[1]]).group(0)
+    elif leaf.type not in ('name', 'keyword'):
+        return ''
+
+    return leaf.value[:position[1] - leaf.start_pos[1]]
 
 
 def _get_code(code_lines, start_pos, end_pos):
-    """
-    :param code_start_pos: is where the code starts.
-    """
     # Get relevant lines.
     lines = code_lines[start_pos[0] - 1:end_pos[0]]
     # Remove the parts at the end of the line.
@@ -46,61 +51,93 @@ class OnErrorLeaf(Exception):
         return self.args[0]
 
 
-def get_stack_at_position(grammar, code_lines, module, pos):
+def _is_on_comment(leaf, position):
+    comment_lines = common.splitlines(leaf.prefix)
+    difference = leaf.start_pos[0] - position[0]
+    prefix_start_pos = leaf.get_start_pos_of_prefix()
+    if difference == 0:
+        indent = leaf.start_pos[1]
+    elif position[0] == prefix_start_pos[0]:
+        indent = prefix_start_pos[1]
+    else:
+        indent = 0
+    line = comment_lines[-difference - 1][:position[1] - indent]
+    return '#' in line
+
+
+def _get_code_for_stack(code_lines, module_node, position):
+    leaf = module_node.get_leaf_for_position(position, include_prefixes=True)
+    # It might happen that we're on whitespace or on a comment. This means
+    # that we would not get the right leaf.
+    if leaf.start_pos >= position:
+        if _is_on_comment(leaf, position):
+            return u('')
+
+        # If we're not on a comment simply get the previous leaf and proceed.
+        leaf = leaf.get_previous_leaf()
+        if leaf is None:
+            return u('')  # At the beginning of the file.
+
+    is_after_newline = leaf.type == 'newline'
+    while leaf.type == 'newline':
+        leaf = leaf.get_previous_leaf()
+        if leaf is None:
+            return u('')
+
+    if leaf.type == 'error_leaf' or leaf.type == 'string':
+        if leaf.start_pos[0] < position[0]:
+            # On a different line, we just begin anew.
+            return u('')
+
+        # Error leafs cannot be parsed, completion in strings is also
+        # impossible.
+        raise OnErrorLeaf(leaf)
+    else:
+        if leaf == ';':
+            user_stmt = leaf.parent
+        else:
+            user_stmt = leaf.get_definition()
+        if user_stmt.parent.type == 'simple_stmt':
+            user_stmt = user_stmt.parent
+
+        if is_after_newline:
+            if user_stmt.start_pos[1] > position[1]:
+                # This means that it's actually a dedent and that means that we
+                # start without context (part of a suite).
+                return u('')
+
+        # This is basically getting the relevant lines.
+        return _get_code(code_lines, user_stmt.get_start_pos_of_prefix(), position)
+
+
+def get_stack_at_position(grammar, code_lines, module_node, pos):
     """
     Returns the possible node names (e.g. import_from, xor_test or yield_stmt).
     """
-    user_stmt = module.get_statement_for_position(pos)
-
-    if user_stmt is not None and user_stmt.type in ('indent', 'dedent'):
-        code = u('')
-    else:
-        if user_stmt is None:
-            user_stmt = module.get_leaf_for_position(pos, include_prefixes=True)
-        if pos <= user_stmt.start_pos:
-            try:
-                leaf = user_stmt.get_previous_leaf()
-            except IndexError:
-                pass
-            else:
-                user_stmt = module.get_statement_for_position(leaf.start_pos)
-
-        if user_stmt.type == 'error_leaf' or user_stmt.type == 'string':
-            # Error leafs cannot be parsed, completion in strings is also
-            # impossible.
-            raise OnErrorLeaf(user_stmt)
-
-        code = _get_code(code_lines, user_stmt.start_pos, pos)
-        if code == ';':
-            # ; cannot be parsed.
-            code = u('')
-
-        # Remove whitespace at the end. Necessary, because the tokenizer will parse
-        # an error token (there's no new line at the end in our case). This doesn't
-        # alter any truth about the valid tokens at that position.
-        code = code.strip('\t ')
-
     class EndMarkerReached(Exception):
         pass
 
     def tokenize_without_endmarker(code):
         tokens = tokenize.source_tokens(code, use_exact_op_types=True)
         for token_ in tokens:
-            if token_[0] == token.ENDMARKER:
+            if token_.string == safeword:
                 raise EndMarkerReached()
-            elif token_[0] == token.DEDENT:
-                # Ignore those. Error statements should not contain them, if
-                # they do it's for cases where an indentation happens and
-                # before the endmarker we still see them.
-                pass
             else:
                 yield token_
 
-    p = parser.Parser(grammar, code, start_parsing=False)
+    code = _get_code_for_stack(code_lines, module_node, pos)
+    # We use a word to tell Jedi when we have reached the start of the
+    # completion.
+    # Use Z as a prefix because it's not part of a number suffix.
+    safeword = 'ZZZ_USER_WANTS_TO_COMPLETE_HERE_WITH_JEDI'
+    code = code + safeword
+
+    p = Parser(grammar, error_recovery=True)
     try:
-        p.parse(tokenizer=tokenize_without_endmarker(code))
+        p.parse(tokens=tokenize_without_endmarker(code))
     except EndMarkerReached:
-        return Stack(p.stack)
+        return Stack(p.pgen_parser.stack)
+    raise SystemError("This really shouldn't happen. There's a bug in Jedi.")
 
 
 class Stack(list):
@@ -154,22 +191,20 @@ def get_possible_completion_types(grammar, stack):
     return keywords, grammar_labels
 
 
-def evaluate_goto_definition(evaluator, leaf):
+def evaluate_goto_definition(evaluator, context, leaf):
     if leaf.type == 'name':
         # In case of a name we can just use goto_definition which does all the
         # magic itself.
-        return evaluator.goto_definitions(leaf)
+        return evaluator.goto_definitions(context, leaf)
 
-    node = None
     parent = leaf.parent
     if parent.type == 'atom':
-        node = leaf.parent
+        return context.eval_node(leaf.parent)
     elif parent.type == 'trailer':
-        node = call_of_leaf(leaf)
-
-    if node is None:
-        return []
-    return evaluator.eval_element(node)
+        return evaluate_call_of_leaf(context, leaf)
+    elif isinstance(leaf, tree.Literal):
+        return context.evaluator.eval_atom(context, leaf)
+    return []
 
 
 CallSignatureDetails = namedtuple(
@@ -207,6 +242,8 @@ def _get_call_signature_details_from_error_node(node, position):
             # until the parentheses is enough.
             children = node.children[index:]
             name = element.get_previous_leaf()
+            if name is None:
+                continue
             if name.type == 'name' or name.parent.type in ('trailer', 'atom'):
                 return CallSignatureDetails(
                     element,
@@ -216,9 +253,16 @@ def _get_call_signature_details_from_error_node(node, position):
 
 def get_call_signature_details(module, position):
     leaf = module.get_leaf_for_position(position, include_prefixes=True)
+    if leaf.start_pos >= position:
+        # Whitespace / comments after the leaf count towards the previous leaf.
+        leaf = leaf.get_previous_leaf()
+        if leaf is None:
+            return None
+
     if leaf == ')':
         if leaf.end_pos == position:
             leaf = leaf.get_next_leaf()
+
     # Now that we know where we are in the syntax tree, we start to look at
     # parents for possible function definitions.
     node = leaf.parent
@@ -228,7 +272,7 @@ def get_call_signature_details(module, position):
             # makes it feel strange to have a call signature.
             return None
 
-        for n in node.children:
+        for n in node.children[::-1]:
             if n.start_pos < position and n.type == 'error_node':
                 result = _get_call_signature_details_from_error_node(n, position)
                 if result is not None:
@@ -236,6 +280,8 @@ def get_call_signature_details(module, position):
 
         if node.type == 'trailer' and node.children[0] == '(':
             leaf = node.get_previous_leaf()
+            if leaf is None:
+                return None
             return CallSignatureDetails(
                 node.children[0], *_get_index_and_key(node.children, position))
 
@@ -245,7 +291,7 @@ def get_call_signature_details(module, position):
 
 
 @time_cache("call_signatures_validity")
-def cache_call_signatures(evaluator, bracket_leaf, code_lines, user_pos):
+def cache_call_signatures(evaluator, context, bracket_leaf, code_lines, user_pos):
     """This function calculates the cache key."""
     index = user_pos[0] - 1
 
@@ -254,12 +300,13 @@ def cache_call_signatures(evaluator, bracket_leaf, code_lines, user_pos):
     whole = '\n'.join(other_lines + [before_cursor])
     before_bracket = re.match(r'.*\(', whole, re.DOTALL)
 
-    module_path = bracket_leaf.get_parent_until().path
+    module_path = context.get_root_context().py__file__()
     if module_path is None:
         yield None  # Don't cache!
     else:
         yield (module_path, before_bracket, bracket_leaf.start_pos)
     yield evaluate_goto_definition(
         evaluator,
+        context,
         bracket_leaf.get_previous_leaf()
     )

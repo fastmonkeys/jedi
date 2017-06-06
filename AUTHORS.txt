@@ -38,5 +38,11 @@ Sid Shanker (@squidarth) <sid.p.shanker@gmail.com>
 Reinoud Elhorst (@reinhrst)
 Guido van Rossum (@gvanrossum) <guido@python.org>
 Dmytro Sadovnychyi (@sadovnychyi) <jedi@dmit.ro>
+Cristi Burcă (@scribu)
+bstaint (@bstaint)
+Mathias Rav (@Mortal) <rav@cs.au.dk>
+Daniel Fiterman (@dfit99) <fitermandaniel2@gmail.com>
+Simon Ruggier (@sruggier)
+
 
 Note: (@user) means a github user name.

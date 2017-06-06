@@ -48,6 +48,10 @@ Kate:
   <https://projects.kde.org/projects/kde/applications/kate/repository/entry/addons/kate/pate/src/plugins/python_autocomplete_jedi.py?rev=KDE%2F4.13>`__,
   you have to enable it, though.
 
+Visual Studio Code:
+
+- `Python Extension`_
+
 Atom:
 
 - autocomplete-python_
@@ -66,18 +70,23 @@ Gedit:
 
 - gedi_
 
-.. _other-software:
+Eric IDE:
 
-Other Software Using Jedi
--------------------------
+- `Eric IDE`_ (Available as a plugin)
 
-- wdb_ - Web Debugger
+Web Debugger:
 
+- wdb_
+
+and many more!
 
 .. _repl-completion:
 
-Tab completion in the Python Shell
+Tab Completion in the Python Shell
 ----------------------------------
+
+Starting with Ipython `6.0.0` Jedi is a dependency of IPython. Autocompletion
+in IPython is therefore possible without additional configuration.
 
 There are two different options how you can use Jedi autocompletion in
 your Python interpreter. One with your custom ``$HOME/.pythonrc.py`` file
@@ -86,7 +95,7 @@ and one that uses ``PYTHONSTARTUP``.
 Using ``PYTHONSTARTUP``
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-.. automodule:: jedi.replstartup
+.. automodule:: jedi.api.replstartup
 
 Using a custom ``$HOME/.pythonrc.py``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -109,3 +118,5 @@ Using a custom ``$HOME/.pythonrc.py``
 .. _SourceLair: https://www.sourcelair.com
 .. _GNOME Builder: https://wiki.gnome.org/Apps/Builder/
 .. _gedi: https://github.com/isamert/gedi
+.. _Eric IDE: http://eric-ide.python-projects.org
+.. _Python Extension: https://marketplace.visualstudio.com/items?itemName=donjayamanne.python

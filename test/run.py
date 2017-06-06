@@ -25,10 +25,10 @@ multiple Python versions.
 .. _tox: http://testrun.org/tox
 
 Integration test cases are located in ``test/completion`` directory
-and each test cases are indicated by the comment ``#?`` (completions /
-definitions), ``#!`` (assignments) and ``#<`` (usages).  There is also
-support for third party libraries. In a normal test run they are not
-being executed, you have to provide a ``--thirdparty`` option.
+and each test case is indicated by either the comment ``#?`` (completions /
+definitions), ``#!`` (assignments), or ``#<`` (usages).
+There is also support for third party libraries. In a normal test run they are
+not being executed, you have to provide a ``--thirdparty`` option.
 
 In addition to standard `-k` and `-m` options in py.test, you can use
 `-T` (`--test-files`) option to specify integration test cases to run.
@@ -64,7 +64,7 @@ happening.
 Auto-Completion
 +++++++++++++++
 
-Uses comments to specify a test in the next line. The comment says, which
+Uses comments to specify a test in the next line. The comment says which
 results are expected. The comment always begins with `#?`. The last row
 symbolizes the cursor.
 
@@ -94,8 +94,8 @@ Tests look like this::
     #! ['abc=1']
     abc
 
-Additionally it is possible to add a number which describes to position of
-the test (otherwise it's just end of line)::
+Additionally it is possible to specify the column by adding a number, which
+describes the position of the test (otherwise it's just the end of line)::
 
     #! 2 ['abc=1']
     abc
@@ -118,9 +118,12 @@ from io import StringIO
 from functools import reduce
 
 import jedi
+from jedi import debug
 from jedi._compatibility import unicode, is_py3
-from jedi.parser import Parser, load_grammar
+from jedi.parser.python import parse
 from jedi.api.classes import Definition
+from jedi.api.completion import get_user_scope
+from jedi import parser_utils
 
 
 TEST_COMPLETIONS = 0
@@ -185,19 +188,22 @@ class IntegrationTestCase(object):
             should_be = set()
             for match in re.finditer('(?:[^ ]+)', correct):
                 string = match.group(0)
-                parser = Parser(load_grammar(), string, start_symbol='eval_input')
-                parser.position_modifier.line = self.line_nr
-                element = parser.get_parsed_node()
-                element.parent = jedi.api.completion.get_user_scope(
-                    script._get_module(),
-                    (self.line_nr, self.column)
-                )
-                results = evaluator.eval_element(element)
+                parser = parse(string, start_symbol='eval_input', error_recovery=False)
+                parser_utils.move(parser.get_root_node(), self.line_nr)
+                element = parser.get_root_node()
+                module_context = script._get_module()
+                # The context shouldn't matter for the test results.
+                user_context = get_user_scope(module_context, (self.line_nr, 0))
+                if user_context.api_type == 'function':
+                    user_context = user_context.get_function_execution()
+                element.parent = user_context.tree_node
+                results = evaluator.eval_element(user_context, element)
                 if not results:
                     raise Exception('Could not resolve %s on line %s'
                                     % (match.string, self.line_nr - 1))
 
-                should_be |= set(Definition(evaluator, r) for r in results)
+                should_be |= set(Definition(evaluator, r.name) for r in results)
+            debug.dbg('Finished getting types', color='YELLOW')
 
             # Because the objects have different ids, `repr`, then compare.
             should = set(comparison(r) for r in should_be)
@@ -240,8 +246,8 @@ def skip_python_version(line):
         '==': 'eq',
         '<=': 'le',
         '>=': 'ge',
-        '<': 'gk',
-        '>': 'lt',
+        '<': 'lt',
+        '>': 'gt',
     }
     # check for python minimal version number
     match = re.match(r" *# *python *([<>]=?|==) *(\d+(?:\.\d+)?)$", line)
@@ -358,9 +364,6 @@ if __name__ == '__main__':
 
     import time
     t_start = time.time()
-    # Sorry I didn't use argparse here. It's because argparse is not in the
-    # stdlib in 2.5.
-    import sys
 
     if arguments['--debug']:
         jedi.set_debug_function()

@@ -3,13 +3,19 @@ import keyword
 
 from jedi._compatibility import is_py3, is_py35
 from jedi import common
-from jedi.evaluate.helpers import FakeName
-from jedi.parser.tree import Leaf
+from jedi.evaluate.filters import AbstractNameDefinition
+from jedi.parser.python.tree import Leaf
+
 try:
     from pydoc_data import topics as pydoc_topics
 except ImportError:
-    # Python 2.6
-    import pydoc_topics
+    # Python 2
+    try:
+        import pydoc_topics
+    except ImportError:
+        # This is for Python 3 embeddable version, which dont have
+        # pydoc_data module in its file python3x.zip.
+        pydoc_topics = None
 
 if is_py3:
     if is_py35:
@@ -66,16 +72,24 @@ keywords_only_valid_as_leaf = (
 )
 
 
+class KeywordName(AbstractNameDefinition):
+    api_type = 'keyword'
+
+    def __init__(self, evaluator, name):
+        self.string_name = name
+        self.parent_context = evaluator.BUILTINS
+
+    def eval(self):
+        return set()
+
+
 class Keyword(object):
-    type = 'completion_keyword'
+    api_type = 'keyword'
 
     def __init__(self, evaluator, name, pos):
-        self.name = FakeName(name, self, pos)
+        self.name = KeywordName(evaluator, name)
         self.start_pos = pos
         self.parent = evaluator.BUILTINS
-
-    def get_parent_until(self):
-        return self.parent
 
     @property
     def only_valid_as_leaf(self):
@@ -99,6 +113,9 @@ def imitate_pydoc(string):
     It's not possible to get the pydoc's without starting the annoying pager
     stuff.
     """
+    if pydoc_topics is None:
+        return ''
+
     # str needed because of possible unicode stuff in py2k (pydoc doesn't work
     # with unicode strings)
     string = str(string)

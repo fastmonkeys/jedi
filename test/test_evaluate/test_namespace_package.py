@@ -49,5 +49,17 @@ def test_namespace_package():
         for c in script_with_path(source + '; x.').completions():
             if c.name == 'foo':
                 completion = c
-        solution = "statement: foo = '%s'" % solution
+        solution = "foo = '%s'" % solution
         assert completion.description == solution
+
+
+def test_nested_namespace_package():
+    code = 'from nested_namespaces.namespace.pkg import CONST'
+
+    sys_path = [dirname(__file__)]
+
+    script = jedi.Script(sys_path=sys_path, source=code, line=1, column=45)
+
+    result = script.goto_definitions()
+
+    assert len(result) == 1

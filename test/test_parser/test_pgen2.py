@@ -8,9 +8,9 @@ test_grammar.py files from both Python 2 and Python 3.
 
 from textwrap import dedent
 
-
-from jedi._compatibility import unicode
-from jedi.parser import Parser, load_grammar, ParseError
+from jedi._compatibility import is_py3
+from jedi.parser.python import parse as _parse, load_grammar
+from jedi.parser import ParserSyntaxError
 import pytest
 
 from test.helpers import TestCase
@@ -19,7 +19,7 @@ from test.helpers import TestCase
 def parse(code, version='3.4'):
     code = dedent(code) + "\n\n"
     grammar = load_grammar(version=version)
-    return Parser(grammar, unicode(code), 'file_input').get_parsed_node()
+    return _parse(code, grammar=grammar, error_recovery=False)
 
 
 class TestDriver(TestCase):
@@ -37,7 +37,7 @@ class GrammarTest(TestCase):
     def invalid_syntax(self, code, **kwargs):
         try:
             parse(code, **kwargs)
-        except ParseError:
+        except ParserSyntaxError:
             pass
         else:
             raise AssertionError("Syntax shouldn't have been valid")
@@ -216,7 +216,11 @@ class TestSetLiteral(GrammarTest):
 
 class TestNumericLiterals(GrammarTest):
     def test_new_octal_notation(self):
-        parse("""0o7777777777777""")
+        code = """0o7777777777777"""
+        if is_py3:
+            parse(code)
+        else:
+            self.invalid_syntax(code)
         self.invalid_syntax("""0o7324528887""")
 
     def test_new_binary_notation(self):

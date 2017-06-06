@@ -4,16 +4,15 @@ import sys
 
 import pytest
 
-from jedi._compatibility import unicode
-from jedi.parser import ParserWithRecovery, load_grammar
-from jedi.evaluate import sys_path, Evaluator
+from jedi.evaluate import sys_path
+from jedi import Script
 
 
 def test_paths_from_assignment():
     def paths(src):
-        grammar = load_grammar()
-        stmt = ParserWithRecovery(grammar, unicode(src)).module.statements[0]
-        return set(sys_path._paths_from_assignment(Evaluator(grammar), stmt))
+        script = Script(src)
+        expr_stmt = script._get_module_node().children[0].children[0]
+        return set(sys_path._paths_from_assignment(script._get_module(), expr_stmt))
 
     assert paths('sys.path[0:0] = ["a"]') == set(['a'])
     assert paths('sys.path = ["b", 1, x + 3, y, "c"]') == set(['b', 'c'])
@@ -42,9 +41,9 @@ def test_get_venv_path(venv):
     site_pkgs = (glob(pjoin(venv, 'lib', 'python*', 'site-packages')) +
                  glob(pjoin(venv, 'lib', 'site-packages')))[0]
     ETALON = [
-        site_pkgs,
         pjoin('/path', 'from', 'egg-link'),
         pjoin(site_pkgs, '.', 'relative', 'egg-link', 'path'),
+        site_pkgs,
         pjoin(site_pkgs, 'dir-from-foo-pth'),
     ]
 

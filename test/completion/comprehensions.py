@@ -69,9 +69,17 @@ listen(['' for x in [1]])
 # nested list comprehensions
 # -----------------
 
-b = [a for arr in [[1]] for a in arr]
+b = [a for arr in [[1, 1.0]] for a in arr]
 #? int()
 b[0]
+#? float()
+b[1]
+
+b = [arr for arr in [[1, 1.0]] for a in arr]
+#? int()
+b[0][0]
+#? float()
+b[1][1]
 
 b = [a for arr in [[1]] if '' for a in arr if '']
 #? int()
@@ -81,9 +89,12 @@ b = [b for arr in [[[1.0]]] for a in arr for b in a]
 #? float()
 b[0]
 
+#? str()
+[x for x in 'chr'][0]
+
 # jedi issue #26
 #? list()
-a = [[int(v) for v in line.strip().split() if v] for line in ["123", "123", "123"] if line]
+a = [[int(v) for v in line.strip().split() if v] for line in ["123", str(), "123"] if line]
 #? list()
 a[0]
 #? int()
@@ -173,4 +184,30 @@ def x():
     [a for a in h if hio]
     if hio: pass
 
+# -----------------
+# slices
+# -----------------
 
+#? list()
+foo = [x for x in [1, '']][:1]
+#? int()
+foo[0]
+#? str()
+foo[1]
+
+# -----------------
+# In class
+# -----------------
+
+class X():
+    def __init__(self, bar):
+        self.bar = bar
+
+    def foo(self):
+        x = [a for a in self.bar][0]
+        #? int()
+        x
+        return x
+
+#? int()
+X([1]).foo()

@@ -1,8 +1,11 @@
+from textwrap import dedent
+
 from jedi._compatibility import builtins, is_py3
-from jedi.parser import load_grammar
-from jedi.parser.tree import Function
-from jedi.evaluate import compiled, representation
+from jedi.parser.python import load_grammar
+from jedi.evaluate import compiled, instance
+from jedi.evaluate.representation import FunctionContext
 from jedi.evaluate import Evaluator
+from jedi.parser_utils import clean_scope_docstring
 from jedi import Script
 
 
@@ -14,25 +17,25 @@ def test_simple():
     e = _evaluator()
     bltn = compiled.CompiledObject(e, builtins)
     obj = compiled.CompiledObject(e, '_str_', bltn)
-    upper = e.find_types(obj, 'upper')
-    assert len(upper) == 1
-    objs = list(e.execute(list(upper)[0]))
+    upper, = obj.py__getattribute__('upper')
+    objs = list(upper.execute_evaluated())
     assert len(objs) == 1
-    assert isinstance(objs[0], representation.Instance)
+    assert isinstance(objs[0], instance.CompiledInstance)
 
 
 def test_fake_loading():
     e = _evaluator()
-    assert isinstance(compiled.create(e, next), Function)
+    assert isinstance(compiled.create(e, next), FunctionContext)
 
     builtin = compiled.get_special_object(e, 'BUILTINS')
-    string = builtin.get_subscope_by_name('str')
+    string, = builtin.py__getattribute__('str')
     from_name = compiled._create_from_name(e, builtin, string, '__init__')
-    assert isinstance(from_name, Function)
+    assert isinstance(from_name, FunctionContext)
 
 
 def test_fake_docstr():
-    assert compiled.create(_evaluator(), next).raw_doc == next.__doc__
+    node = compiled.create(_evaluator(), next).tree_node
+    assert clean_scope_docstring(node) == next.__doc__
 
 
 def test_parse_function_doc_illegal_docstr():
@@ -50,7 +53,7 @@ def test_doc():
     just a Jedi API definition.
     """
     obj = compiled.CompiledObject(_evaluator(), ''.__getnewargs__)
-    assert obj.doc == ''
+    assert obj.py__doc__() == ''
 
 
 def test_string_literals():
@@ -67,3 +70,24 @@ def test_string_literals():
     else:
         assert typ('b""') == 'str'
         assert typ('u""') == 'unicode'
+
+
+def test_method_completion():
+    code = dedent('''
+    class Foo:
+        def bar(self):
+            pass
+
+    foo = Foo()
+    foo.bar.__func__''')
+    if is_py3:
+        result = []
+    else:
+        result = ['__func__']
+    assert [c.name for c in Script(code).completions()] == result
+
+
+def test_time_docstring():
+    import time
+    comp, = Script('import time\ntime.sleep').completions()
+    assert comp.docstring() == time.sleep.__doc__

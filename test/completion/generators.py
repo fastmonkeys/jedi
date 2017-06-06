@@ -108,7 +108,7 @@ for c in Counter(3, 8):
 
 
 # -----------------
-# tuples
+# tuple assignments
 # -----------------
 def gen():
     if random.choice([0,1]):
@@ -148,6 +148,9 @@ a
 #? str()
 b
 
+a, = (a for a in [1])
+#? int()
+a
 
 # -----------------
 # More complicated access
@@ -175,3 +178,25 @@ gen().send()
 
 #? 
 gen()()
+
+# -----------------
+# yield from
+# -----------------
+
+# python >= 3.3
+
+def yield_from():
+    yield from iter([1])
+
+#? int()
+next(yield_from())
+
+def yield_from_multiple():
+    yield from iter([1])
+    yield str()
+
+x, y = yield_from_multiple()
+#? int()
+x
+#? str()
+y
